@@ -25,10 +25,10 @@ class HomeHandler(webapp2.RequestHandler):
         self.response.write('<b>Cache Misses:{}</b><br><br>'.format(
                             stats['misses']))
 
-        user = self.request.get('user')
-        ancestor_key = ndb.Key("User", user or "*notitle*")
-        # Query the datastore
-        photos = Photo.query_user(ancestor_key).fetch(100)
+        # user = self.request.get('user')
+        # user_key = ndb.Key("User", user or "*notitle*")
+        # # Query the datastore
+        # photos = user_key.get().photos
 
 
         self.response.out.write("""
@@ -50,47 +50,47 @@ class UserHandler(webapp2.RequestHandler):
 
     """Print json or html version of the users photos"""
     def get(self,user,type):
-        #ancestor_key = ndb.Key("User", user)
-        #photos = Photo.query_user(ancestor_key).fetch(100)
-        photos = self.get_data(user)
+        photo_keys = self.get_data(user)
         if type == "json":
-            output = self.json_results(photos)
+            output = self.json_results(user,photo_keys)
         else:
-            output = self.web_results(photos)
+            output = self.web_results(user,photo_keys)
         self.response.out.write(output)
 
-    def json_results(self,photos):
+    def json_results(self,user,photo_keys):
         """Return formatted json from the datastore query"""
         json_array = []
-        for photo in photos:
+        for key in photo_keys:
+            photo = key.get()
             dict = {}
-            dict['image_url'] = "image/%s/" % photo.key.urlsafe()
+            dict['image_url'] = "image/%s/" % key.urlsafe()
             dict['caption'] = photo.caption
-            dict['user'] = photo.user
+            dict['user'] = user
             dict['date'] = str(photo.date)
             json_array.append(dict)
         return json.dumps({'results' : json_array})
 
-    def web_results(self,photos):
+    def web_results(self,user,photo_keys):
         """Return html formatted json from the datastore query"""
         html = ""
-        for photo in photos:
-            html += '<div><hr><div><img src="/image/%s/" width="200" border="1"/></div>' % photo.key.urlsafe()
-            html += '<div><blockquote>Caption: %s<br>User: %s<br>Date:%s</blockquote></div></div>' % (cgi.escape(photo.caption),photo.user,str(photo.date))
+        for key in photo_keys:
+            photo = key.get()
+            html += '<div><hr><div><img src="/image/%s/" width="200" border="1"/></div>' % key.urlsafe()
+            html += '<div><blockquote>Caption: %s<br>User: %s<br>Date:%s</blockquote></div></div>' % (cgi.escape(photo.caption),user,str(photo.date))
         return html
 
     @staticmethod
     def get_data(user):
         """Get data from the datastore only if we don't have it cached"""
-        key = user + "_photos"
-        data = memcache.get(key)
+        key = user
+        data = memcache.get(user)
         if data is not None:
             logging.info("Found in cache")
             return data
         else:
             logging.info("Cache miss")
-            ancestor_key = ndb.Key("User", user)
-            data = Photo.query_user(ancestor_key).fetch(100)
+            user_key = ndb.Key("User", user)
+            data = user_key.get().photos
             if not memcache.add(key, data, 3600):
                 logging.info("Memcache failed")
         return data
@@ -129,13 +129,24 @@ class PostHandler(webapp2.RequestHandler):
         # will be consistent. However, the write rate should be limited to
         # ~1/second.
         photo = Photo(parent=ndb.Key("User", user),
-                user=user,
                 caption=self.request.get('caption'),
                 image=thumbnail)
-        photo.put()
+        photo_key = photo.put()
+
+        # Add photo key to user's photos property
+        user_key = ndb.Key("User", user)
+        user_model = user_key.get()
+        if user_model is None and (user == "default" or user == None):
+            user_model = User(username = "default",
+                photos = [])
+            user_model.key = ndb.Key("User", "default")
+            user_model.put()
+        user_model.photos.append(photo_key)
+        user_model.put()
+
 
         # Clear the cache (the cached version is going to be outdated)
-        key = user + "_photos"
+        key = user
         memcache.delete(key)
 
         # Redirect to print out JSON
