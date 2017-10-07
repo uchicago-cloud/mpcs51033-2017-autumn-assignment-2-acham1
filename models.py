@@ -3,9 +3,9 @@ from google.appengine.ext import ndb
 class Photo(ndb.Model):
     """Models a user uploaded photo entry"""
 
-    image = ndb.BlobProperty()
     caption = ndb.StringProperty()
     date = ndb.DateTimeProperty(auto_now_add=True)
+    # instead of storing an image data blob or file name, this object's key will be used as the filename of the image in cloud storage
 
 class User(ndb.Model):
     """Models a user account"""

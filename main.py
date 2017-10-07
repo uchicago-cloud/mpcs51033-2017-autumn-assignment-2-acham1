@@ -4,10 +4,13 @@ import urllib
 import webapp2
 import json
 import logging
+import os
+import cloudstorage as gcs
 
 from google.appengine.api import memcache
 from google.appengine.ext import ndb
 from google.appengine.api import images
+from google.appengine.api import app_identity
 
 from models import *
 
@@ -57,6 +60,24 @@ class UserHandler(webapp2.RequestHandler):
             output = self.web_results(user,photo_keys)
         self.response.out.write(output)
 
+        # #Printing bucket contents
+        # self.response.write('Listbucket result:\n')
+        # page_size = 1
+        # bucket_name = os.environ.get('BUCKET_NAME',
+        #         app_identity.get_default_gcs_bucket_name())
+        # stats = gcs.listbucket("/" + bucket_name, max_keys=page_size)
+        # while True:
+        #     count = 0
+        #     for stat in stats:
+        #         count += 1
+        #         self.response.write(repr(stat))
+        #         self.response.write('\n')
+
+        #     if count != page_size or count == 0:
+        #         break
+        #     stats = gcs.listbucket("/" + bucket_name, max_keys=page_size,
+        #                    marker=stat.filename)
+
     def json_results(self,user,photo_keys):
         """Return formatted json from the datastore query"""
         json_array = []
@@ -90,7 +111,13 @@ class UserHandler(webapp2.RequestHandler):
         else:
             logging.info("Cache miss")
             user_key = ndb.Key("User", user)
-            data = user_key.get().photos
+            user_model = user_key.get()
+            if user_model is None and (user == "default" or user == None):
+                user_model = User(username = "default",
+                    photos = [])
+                user_model.key = ndb.Key("User", "default")
+                user_model.put()
+            data = user_model.photos
             if not memcache.add(key, data, 3600):
                 logging.info("Memcache failed")
         return data
@@ -102,9 +129,13 @@ class ImageHandler(webapp2.RequestHandler):
     def get(self,key):
         """Write a response of an image (or 'no image') based on a key"""
         photo = ndb.Key(urlsafe=key).get()
-        if photo.image:
+        if photo:
             self.response.headers['Content-Type'] = 'image/png'
-            self.response.out.write(photo.image)
+            bucket_name = os.environ.get('BUCKET_NAME',
+                app_identity.get_default_gcs_bucket_name())
+            gcs_file = gcs.open("/" + bucket_name + "/" + key)
+            self.response.write(gcs_file.read())
+            gcs_file.close()
         else:
             self.response.out.write('No image')
 
@@ -129,9 +160,14 @@ class PostHandler(webapp2.RequestHandler):
         # will be consistent. However, the write rate should be limited to
         # ~1/second.
         photo = Photo(parent=ndb.Key("User", user),
-                caption=self.request.get('caption'),
-                image=thumbnail)
+                caption=self.request.get('caption'))
         photo_key = photo.put()
+
+        bucket_name = os.environ.get('BUCKET_NAME',
+                app_identity.get_default_gcs_bucket_name())
+        gcs_file = gcs.open("/" + bucket_name + "/" + photo_key.urlsafe(), 'w')
+        gcs_file.write(thumbnail)
+        gcs_file.close()
 
         # Add photo key to user's photos property
         user_key = ndb.Key("User", user)
