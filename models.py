@@ -5,6 +5,7 @@ class Photo(ndb.Model):
 
     caption = ndb.StringProperty()
     date = ndb.DateTimeProperty(auto_now_add=True)
+    labels = ndb.StringProperty(repeated=True)
     # instead of storing an image data blob or file name, this object's key will be used as the filename of the image in cloud storage
 
 class User(ndb.Model):

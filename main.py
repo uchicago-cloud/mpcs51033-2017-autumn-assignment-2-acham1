@@ -5,12 +5,16 @@ import webapp2
 import json
 import logging
 import os
+import base64
 import cloudstorage as gcs
 
 from google.appengine.api import memcache
 from google.appengine.ext import ndb
 from google.appengine.api import images
 from google.appengine.api import app_identity
+from google.appengine.api import taskqueue
+from google.appengine.ext import deferred
+from google.appengine.api import urlfetch
 
 from models import *
 
@@ -98,6 +102,7 @@ class UserHandler(BaseHandler):
             dict['caption'] = photo.caption
             dict['user'] = user.username
             dict['date'] = str(photo.date)
+            dict['labels'] = photo.labels
             json_array.append(dict)
         return json.dumps({'results' : json_array})
 
@@ -107,7 +112,7 @@ class UserHandler(BaseHandler):
         for key in photo_keys:
             photo = key.get()
             html += '<div><hr><div><img src="/image/%s/?id_token=%s" width="200" border="1"/></div>' % (key.urlsafe(), user.id_token)
-            html += '<div><blockquote>Caption: %s<br>User: %s<br>Date:%s</blockquote></div></div>' % (cgi.escape(photo.caption),user.username,str(photo.date))
+            html += '<div><blockquote>Caption: %s<br>User: %s<br>Date:%s<br>Labels:%s</blockquote></div></div>' % (cgi.escape(photo.caption),user.username,str(photo.date),str(photo.labels))
         return html
 
     @staticmethod
@@ -176,6 +181,9 @@ class PostHandler(BaseHandler):
         user.photos.append(photo_key)
         user.put()
 
+        # Schedule labeling task
+        deferred.defer(label_image, photo_key.urlsafe(), thumbnail)
+
         # Clear the cache (the cached version is going to be outdated)
         memcache.delete(user.username + "_photos")
 
@@ -185,15 +193,23 @@ class PostHandler(BaseHandler):
 
 ################################################################################
 class DeleteHandler(BaseHandler):
-    """ Authenticate the user """
+    """Delete an image"""
 
-    def get(self):
-        return
-
+    def get(self, key):
+        user = self.parseID()
+        photo_key = ndb.Key(urlsafe=key)
+        if photo_key not in user.photos:
+            return self.abort(401)
+        user.photos.remove(photo_key)
+        photo = photo_key.get()
+        if photo:
+            self.response.headers['Content-Type'] = 'image/png'
+            gcs_file = gcs.delete("/" + self.bucketName() + "/" + key)
+        memcache.set(user.username + "_photos", user.photos, 3600)
 
 ################################################################################
 class AuthenticationHandler(BaseHandler):
-    """ Authenticate the user """
+    """Authenticate the user"""
 
     def get(self):
         # get username and pw params from request url
@@ -237,6 +253,42 @@ class LoggingHandler(BaseHandler):
 
 ################################################################################
 
+def label_image(key, photo_data):
+    """Label image through Vision API"""
+    logging.info("Attempting to label image!")
+    url = "https://vision.googleapis.com/v1/images:annotate?key=AIzaSyDD5h0xlEBN0Sl3ufXa4GbIr1rrGEpo9Hs"
+    # bucketName =  os.environ.get('BUCKET_NAME', app_identity.get_default_gcs_bucket_name())
+    # imageUri = "http://%s.storage.googleapis.com/%s" % (bucketName, key)
+    try:
+        data = {
+            "requests": [
+                {
+                  "image": {
+                    "content": base64.b64encode(photo_data)
+                  },
+                  "features": [
+                    {
+                      "type": "LABEL_DETECTION"
+                    }
+                  ]
+                }
+              ]
+            }
+        headers = {'Content-Type': 'application/json'}
+        result = urlfetch.fetch(
+            url=url,
+            payload=json.dumps(data),
+            method=urlfetch.POST,
+            headers=headers)
+        result = [x['description'] for x in json.loads(result.content)["responses"][0]["labelAnnotations"][:3]]
+        photo = ndb.Key(urlsafe=key).get()
+        photo.labels += result
+        photo.put()
+        print "Image tagged as " + str(result)
+    except urlfetch.Error:
+        logging.exception('Caught exception fetching url')
+
+
 app = webapp2.WSGIApplication([
     ('/', HomeHandler),
     webapp2.Route('/logging/', handler=LoggingHandler),
@@ -244,6 +296,6 @@ app = webapp2.WSGIApplication([
     webapp2.Route('/image/<key>/', handler=ImageHandler),
     webapp2.Route('/post/<user>/', handler=PostHandler),
     webapp2.Route('/user/authenticate/', handler=AuthenticationHandler),
-    webapp2.Route('/user/<user>/<type>/', handler=UserHandler)
+    webapp2.Route('/user/<user>/<type>/', handler=UserHandler),
     ],
     debug=True)
