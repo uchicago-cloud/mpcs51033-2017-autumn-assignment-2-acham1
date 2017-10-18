@@ -1,0 +1,37 @@
+Assignment 2
+============
+
+[x] Add a `User` model
+[x] Change image storage strategy
+[x] Add authentication
+  [x] Add authentication API
+  [x] Update API calls to pass token
+
+[x] Add delete photo API
+[x] Photo labeling with Google Vision
+
+Great job on this assignment.  It took me a bit to realize that any username
+and password would return a token, but after that, I was able to test everything
+and it worked great.
+
+Nice work creating a base class for your handlers.  Made the implementation very
+clean and would be easier to maintain in the future.  I think that I will have
+to add this to my "GAE best practices" slides for next year.
+
+Cloud storage worked great locally, so I assume it was working on the deployed
+version since I could upload images.  I was unimpressed with the Cloud Vision
+results.  I uploaded a picture of a dog and all it found was "mammal".  It did
+identify grass, which I guess is a really unexciting accomplishment.
+
+Grade: 10/10
+
+
+~~~
+My Testing Notes (ignore thsese)
+
+ahdzfnBob3RvLXRpbWVsaW5lLTE4MjAwNHILCxIEVXNlciIBYQw
+aghkZXZ-Tm9uZXILCxIEVXNlciIBYQw
+
+curl -v https://photo-timeline-182004.appspot.com/user/default/json/?id_token=ahdzfnBob3RvLXRpbWVsaW5lLTE4MjAwNHILCxIEVXNlciIBYQw
+curl -v -X POST -H "Content-Type: multipart/form-data" -F caption=caption -F "image=@image.jpg" http://localhost:8080/post/default/?id_token=aghkZXZ-Tm9uZXILCxIEVXNlciIBYQw
+aghkZXZ-Tm9uZXILCxIEVXNlciIBYQw

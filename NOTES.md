@@ -24,7 +24,7 @@ curl -v -X POST -H "Content-Type: multipart/form-data" -F caption=<caption> -F "
 
 3. **Get a json list of most recent submitted pictures** (Returns information including image url (relative path))
 ```
-curl -v https://photo-timeline-182004.appspot.com/user/<username>/json/?id_token=<id_token>
+curl -v https://photo-timeline-182004.appspot.com/user/default/json/?id_token=<id_token>
 ```
 
 4. **Download a specific picture** (Saves image into output file)
@@ -36,4 +36,3 @@ curl https://photo-timeline-182004.appspot.com/<image uri>/?id_token=<id_token> 
 ```
 curl -v https://photo-timeline-182004.appspot.com/<image uri>/delete/?id_token=<id_token>
 ```
-
